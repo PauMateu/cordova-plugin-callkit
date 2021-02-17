@@ -11,15 +11,23 @@ NSString* appName;
 NSString* ringtone;
 NSString* icon;
 BOOL includeInRecents = NO;
-NSMutableDictionary *callbackIds;
+NSMutableDictionary *callbackIds; 
 NSDictionary* pendingCallFromRecents;
 BOOL monitorAudioRouteChange = NO;
 BOOL enableDTMF = NO;
+//private static reference
+static CordovaCall* cordovaCall;
 
++ (CordovaCall*) cordovaCall{
+    return cordovaCall;
+}
 - (void)pluginInitialize
 {
+    cordovaCall = self;
+    NSLog(@"initializing plugin");
     CXProviderConfiguration *providerConfiguration;
     appName = [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleDisplayName"];
+    
     providerConfiguration = [[CXProviderConfiguration alloc] initWithLocalizedName:appName];
     providerConfiguration.maximumCallGroups = 1;
     providerConfiguration.maximumCallsPerCallGroup = 1;
@@ -45,6 +53,7 @@ BOOL enableDTMF = NO;
     [callbackIds setObject:[NSMutableArray array] forKey:@"speakerOn"];
     [callbackIds setObject:[NSMutableArray array] forKey:@"speakerOff"];
     [callbackIds setObject:[NSMutableArray array] forKey:@"DTMF"];
+    [callbackIds setObject:[NSMutableArray array] forKey:@"videoButton"];
     //allows user to make call from recents
     [[NSNotificationCenter defaultCenter] addObserver:self selector:@selector(receiveCallFromRecents:) name:@"RecentsCallNotification" object:nil];
     //detect Audio Route Changes to make speakerOn and speakerOff event handlers
@@ -54,6 +63,7 @@ BOOL enableDTMF = NO;
 // CallKit - Interface
 - (void)updateProviderConfig
 {
+    NSLog(@"updating provider");
     CXProviderConfiguration *providerConfiguration;
     providerConfiguration = [[CXProviderConfiguration alloc] initWithLocalizedName:appName];
     providerConfiguration.maximumCallGroups = 1;
@@ -76,20 +86,47 @@ BOOL enableDTMF = NO;
 
     self.provider.configuration = providerConfiguration;
 }
-
-- (void)setupAudioSession
+- (void) handleVideoButtonPressed
+{
+    NSLog(@"[callkits] button pressed!");
+    //for (id callbackId in callbackIds[@"videoButton"]) {
+    //    NSLog(@"[callkits] handeling callbackId");
+    //    CDVPluginResult* pluginResult = nil;
+    //    pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"videoButton event called successfully"];
+    //    [pluginResult setKeepCallbackAsBool:YES];
+    //    [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+    //}
+}
+- (void)setupAudioSessionWithoutCategory
 {
     @try {
+        
       AVAudioSession *sessionInstance = [AVAudioSession sharedInstance];
-      [sessionInstance setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
-      [sessionInstance setMode:AVAudioSessionModeVoiceChat error:nil];
+      [sessionInstance setMode:AVAudioSessionModeDefault error:nil];
       NSTimeInterval bufferDuration = .005;
       [sessionInstance setPreferredIOBufferDuration:bufferDuration error:nil];
       [sessionInstance setPreferredSampleRate:44100 error:nil];
-      NSLog(@"Configuring Audio");
+      NSLog(@"[AudioMode][CordovaCall]Configuring Audio");
     }
     @catch (NSException *exception) {
-       NSLog(@"Unknown error returned from setupAudioSession");
+       NSLog(@"[AudioMode] Unknown error returned from setupAudioSession");
+    }
+    return;
+}
+- (void)setupAudioSession
+{
+    @try {
+        
+      AVAudioSession *sessionInstance = [AVAudioSession sharedInstance];
+      [sessionInstance setCategory:AVAudioSessionCategoryPlayAndRecord error:nil];
+      [sessionInstance setMode:AVAudioSessionModeDefault error:nil];
+      NSTimeInterval bufferDuration = .005;
+      [sessionInstance setPreferredIOBufferDuration:bufferDuration error:nil];
+      [sessionInstance setPreferredSampleRate:44100 error:nil];
+      NSLog(@"[AudioMode][CordovaCall]Configuring Audio");
+    }
+    @catch (NSException *exception) {
+       NSLog(@"[AudioMode] Unknown error returned from setupAudioSession");
     }
     return;
 }
@@ -176,8 +213,10 @@ BOOL enableDTMF = NO;
     CDVPluginResult* pluginResult = nil;
     NSString* callName = [command.arguments objectAtIndex:0];
     NSString* callId = hasId?[command.arguments objectAtIndex:1]:callName;
+    NSString* audio = @"audio";
+    BOOL video = ![[command.arguments objectAtIndex:2] isEqualToString:audio];
     NSUUID *callUUID = [[NSUUID alloc] init];
-
+    [self setupAudioSession];
     if (hasId) {
         [[NSUserDefaults standardUserDefaults] setObject:callName forKey:[command.arguments objectAtIndex:1]];
         [[NSUserDefaults standardUserDefaults] synchronize];
@@ -187,7 +226,7 @@ BOOL enableDTMF = NO;
         CXHandle *handle = [[CXHandle alloc] initWithType:CXHandleTypePhoneNumber value:callId];
         CXCallUpdate *callUpdate = [[CXCallUpdate alloc] init];
         callUpdate.remoteHandle = handle;
-        callUpdate.hasVideo = hasVideo;
+        callUpdate.hasVideo = video;
         callUpdate.localizedCallerName = callName;
         callUpdate.supportsGrouping = NO;
         callUpdate.supportsUngrouping = NO;
@@ -283,6 +322,7 @@ BOOL enableDTMF = NO;
 - (void)registerEvent:(CDVInvokedUrlCommand*)command
 {
     NSString* eventName = [command.arguments objectAtIndex:0];
+    NSLog(@"[callkits] registering event %@", eventName);
     if(callbackIds[eventName] != nil) {
         [callbackIds[eventName] addObject:command.callbackId];
     }
@@ -331,11 +371,13 @@ BOOL enableDTMF = NO;
 
 - (void)speakerOn:(CDVInvokedUrlCommand*)command
 {
+    NSLog(@"[AudioMode][CordovaCall]speaker on command called");
     CDVPluginResult* pluginResult = nil;
     AVAudioSession *sessionInstance = [AVAudioSession sharedInstance];
     BOOL success = [sessionInstance overrideOutputAudioPort:AVAudioSessionPortOverrideSpeaker error:nil];
     if(success) {
-      pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Speakerphone is on"];
+        NSLog(@"[AudioMode][CordovaCall] success on changing to speaker on");
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Speakerphone is on"];
     } else {
       pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"An error occurred"];
     }
@@ -344,11 +386,13 @@ BOOL enableDTMF = NO;
 
 - (void)speakerOff:(CDVInvokedUrlCommand*)command
 {
+    NSLog(@"[AudioMode][CordovaCall] speaker off command called");
     CDVPluginResult* pluginResult = nil;
     AVAudioSession *sessionInstance = [AVAudioSession sharedInstance];
     BOOL success = [sessionInstance overrideOutputAudioPort:AVAudioSessionPortOverrideNone error:nil];
     if(success) {
-      pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Speakerphone is off"];
+        NSLog(@"[AudioMode][CordovaCall] success on changing to speaker off");
+        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsString:@"Speakerphone is off"];
     } else {
       pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_ERROR messageAsString:@"An error occurred"];
     }
@@ -404,10 +448,13 @@ BOOL enableDTMF = NO;
 
 - (void)handleAudioRouteChange:(NSNotification *) notification
 {
+    //[self setupAudioSession];
+    NSLog(@"[AudioMode] handleing audio route change");
     if(monitorAudioRouteChange) {
         NSNumber* reasonValue = notification.userInfo[@"AVAudioSessionRouteChangeReasonKey"];
         AVAudioSessionRouteDescription* previousRouteKey = notification.userInfo[@"AVAudioSessionRouteChangePreviousRouteKey"];
         NSArray* outputs = [previousRouteKey outputs];
+        NSLog(@"[AudioMode] monitoraaudioroutechange == true");
         if([outputs count] > 0) {
             AVAudioSessionPortDescription *output = outputs[0];
             if(![output.portType isEqual: @"Speaker"] && [reasonValue isEqual:@4]) {
@@ -437,7 +484,7 @@ BOOL enableDTMF = NO;
 
 - (void)provider:(CXProvider *)provider performStartCallAction:(CXStartCallAction *)action
 {
-    [self setupAudioSession];
+    NSLog(@"provider performStartCallAction");
     CXCallUpdate *callUpdate = [[CXCallUpdate alloc] init];
     callUpdate.remoteHandle = action.handle;
     callUpdate.hasVideo = action.video;
@@ -446,36 +493,43 @@ BOOL enableDTMF = NO;
     callUpdate.supportsUngrouping = NO;
     callUpdate.supportsHolding = NO;
     callUpdate.supportsDTMF = enableDTMF;
-    
+    [self setupAudioSessionWithoutCategory];
     [self.provider reportCallWithUUID:action.callUUID updated:callUpdate];
     [action fulfill];
-    NSDictionary *callData = @{@"callName":action.contactIdentifier, @"callId": action.handle.value, @"isVideo": action.video?@YES:@NO, @"message": @"sendCall event called successfully"};
-    for (id callbackId in callbackIds[@"sendCall"]) {
-        CDVPluginResult* pluginResult = nil;
-        pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callData];
-        [pluginResult setKeepCallbackAsBool:YES];
-        [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+    @try {
+        NSDictionary *callData = @{@"callName":action.contactIdentifier, @"callId": action.handle.value, @"isVideo": action.video?@YES:@NO, @"message": @"sendCall event called successfully"};
+        for (id callbackId in callbackIds[@"sendCall"]) {
+            CDVPluginResult* pluginResult = nil;
+            pluginResult = [CDVPluginResult resultWithStatus:CDVCommandStatus_OK messageAsDictionary:callData];
+            [pluginResult setKeepCallbackAsBool:YES];
+            [self.commandDelegate sendPluginResult:pluginResult callbackId:callbackId];
+        }
+        if([callbackIds[@"sendCall"] count] == 0) {
+            pendingCallFromRecents = callData;
+        }
+    }@catch (NSException *exception){
+        NSLog(@"%@", exception.reason);
+        NSLog(@"[fcmplugin] ei, se ha cacheado la excepcion");
+        
     }
-    if([callbackIds[@"sendCall"] count] == 0) {
-        pendingCallFromRecents = callData;
-    }
+
     //[action fail];
 }
 
 - (void)provider:(CXProvider *)provider didActivateAudioSession:(AVAudioSession *)audioSession
 {
-    NSLog(@"activated audio");
+    NSLog(@"[AudioMode][CordovaCall] Monitoring audio route change");
     monitorAudioRouteChange = YES;
 }
 
 - (void)provider:(CXProvider *)provider didDeactivateAudioSession:(AVAudioSession *)audioSession
 {
-    NSLog(@"deactivated audio");
+    NSLog(@"[AudioMode][CordovaCall] deactivated audio");
 }
 
 - (void)provider:(CXProvider *)provider performAnswerCallAction:(CXAnswerCallAction *)action
 {
-    [self setupAudioSession];
+    [self setupAudioSessionWithoutCategory];
     [action fulfill];
     for (id callbackId in callbackIds[@"answer"]) {
         CDVPluginResult* pluginResult = nil;
@@ -589,10 +643,13 @@ BOOL enableDTMF = NO;
     
     @try {
         NSError* error;
-        NSDictionary* json = [NSJSONSerialization JSONObjectWithData:[data dataUsingEncoding:NSUTF8StringEncoding] options:kNilOptions error:&error];
         
+        
+        NSDictionary* json = [NSJSONSerialization JSONObjectWithData:[data dataUsingEncoding:NSUTF8StringEncoding] options:kNilOptions error:&error];
+        NSLog(@"[objC] we got here");
+
         NSObject* caller = [json objectForKey:@"Caller"];
-        NSArray* args = [NSArray arrayWithObjects:[caller valueForKey:@"Username"], [caller valueForKey:@"ConnectionId"], nil];
+        NSArray* args = [NSArray arrayWithObjects:[caller valueForKey:@"Username"], [caller valueForKey:@"ConnectionId"],[caller valueForKey:@"type"],nil];
         
         CDVInvokedUrlCommand* newCommand = [[CDVInvokedUrlCommand alloc] initWithArguments:args callbackId:@"" className:self.VoIPPushClassName methodName:self.VoIPPushMethodName];
         

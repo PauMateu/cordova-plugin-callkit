@@ -2,6 +2,7 @@
 #import "Intents/Intents.h"
 #import <CallKit/CallKit.h>
 #import <objc/runtime.h>
+#import "CordovaCall.h"
 
 @implementation AppDelegate (CordovaCall)
 

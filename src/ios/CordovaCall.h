@@ -4,6 +4,9 @@
 
 @interface CordovaCall : CDVPlugin <PKPushRegistryDelegate, CXProviderDelegate>
 
+//public static method
++ (CordovaCall*) cordovaCall;
+
 // PushKit
 @property (nonatomic, copy) NSString *VoIPPushCallbackId;
 @property (nonatomic, copy) NSString *VoIPPushClassName;
@@ -17,6 +20,7 @@
 
 - (void)updateProviderConfig;
 - (void)setupAudioSession;
+- (void)setupAudioSessionWithoutCategory;
 
 - (void)setAppName:(CDVInvokedUrlCommand*)command;
 - (void)setIcon:(CDVInvokedUrlCommand*)command;
@@ -36,6 +40,7 @@
 - (void)speakerOff:(CDVInvokedUrlCommand*)command;
 - (void)callNumber:(CDVInvokedUrlCommand*)command;
 
+- (void)handleVideoButtonPressed;
 - (void)receiveCallFromRecents:(NSNotification *) notification;
 - (void)handleAudioRouteChange:(NSNotification *) notification;
 
